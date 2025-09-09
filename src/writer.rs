@@ -12,6 +12,11 @@ use mcap::{Attachment, Message, Writer, records::MessageHeader};
 
 #[derive(GodotClass)]
 /// This class allows writing MCAP files.
+///
+/// Error handling:
+/// - Methods that return `bool` will return `false` on failure and set an internal last-error message.
+/// - Call [`get_last_error()`] to retrieve the most recent error as a `GString`.
+/// - On successful operations, the last error is cleared.
 #[class(init)]
 struct MCAPWriter {
     base: Base<RefCounted>,
@@ -20,8 +25,58 @@ struct MCAPWriter {
     /// Options for writing the MCAP file. Modify these before calling `open()`.
     #[export]
     options: OnEditor<Gd<MCAPWriteOptions>>,
-    #[var]
-    last_error: GString,
+    // Internal last error string
+    last_error: String,
+}
+
+impl MCAPWriter {
+    /// Set and log the last error.
+    fn set_error(&mut self, msg: impl Into<String>) {
+        let s = msg.into();
+        self.last_error = s.clone();
+        godot_error!("{}", s);
+    }
+
+    /// Clear the last error.
+    fn clear_error(&mut self) {
+        self.last_error.clear();
+    }
+
+    /// Get a mutable reference to the writer or set an error if it's not open.
+    fn writer_or_err_mut(&mut self, caller: &str) -> Option<&mut Writer<GFile>> {
+        if self.writer.is_none() {
+            self.set_error(format!("{} called before open()", caller));
+            return None;
+        }
+        self.writer.as_mut()
+    }
+
+    /// Helper to run an operation on the writer and map Result to a return type with a default on error.
+    fn with_writer<R, E>(
+        &mut self,
+        caller: &str,
+        f: impl FnOnce(&mut Writer<GFile>) -> Result<R, E>,
+        err_ret: R,
+    ) -> R
+    where
+        R: Copy,
+        E: core::fmt::Display,
+    {
+        if let Some(w) = self.writer_or_err_mut(caller) {
+            match f(w) {
+                Ok(v) => {
+                    self.clear_error();
+                    v
+                }
+                Err(e) => {
+                    self.set_error(format!("{} failed: {}", caller, e));
+                    err_ret
+                }
+            }
+        } else {
+            err_ret
+        }
+    }
 }
 
 #[godot_api]
@@ -32,17 +87,19 @@ impl MCAPWriter {
     pub fn open(&mut self, path: GString) -> bool {
         // If a file is already open, return false and print an error
         if self.writer.is_some() {
-            godot_error!("open() called but a file is already open");
+            self.set_error("open() called but a file is already open");
             return false;
         }
 
         self.path = path;
+    // reset last error for a fresh session
+    self.clear_error();
 
         // 1) open file
         let file = match GFile::open(&self.path, ModeFlags::WRITE) {
             Ok(f) => f,
             Err(err) => {
-                godot_error!("Failed to open {}: {}", self.path, err);
+                self.set_error(format!("Failed to open {}: {}", self.path, err));
                 self.writer = None;
                 return false;
             }
@@ -55,10 +112,11 @@ impl MCAPWriter {
         match opts.create(file) {
             Ok(w) => {
                 self.writer = Some(w);
+                self.clear_error();
                 true
             }
             Err(e) => {
-                godot_error!("Failed to create MCAP writer: {}", e);
+                self.set_error(format!("Failed to create MCAP writer: {}", e));
                 self.writer = None;
                 false
             }
@@ -76,22 +134,18 @@ impl MCAPWriter {
     ///   have zero length.
     #[func]
     pub fn add_schema(&mut self, name: GString, encoding: GString, data: PackedByteArray) -> i64 {
-        if let Some(w) = self.writer.as_mut() {
-            match w.add_schema(
-                name.to_string().as_str(),
-                encoding.to_string().as_str(),
-                data.as_slice(),
-            ) {
-                Ok(id) => id as i64,
-                Err(e) => {
-                    godot_error!("add_schema failed: {}", e);
-                    -1
-                }
-            }
-        } else {
-            godot_error!("add_schema called before open()");
-            -1
-        }
+        self.with_writer(
+            "add_schema",
+            |w| {
+                w.add_schema(
+                    name.to_string().as_str(),
+                    encoding.to_string().as_str(),
+                    data.as_slice(),
+                )
+                .map(|id| id as i64)
+            },
+            -1,
+        )
     }
 
     /// Adds a channel, returning its ID. If a channel with equivalent content was added previously,
@@ -114,26 +168,21 @@ impl MCAPWriter {
         message_encoding: GString,
         metadata: Dictionary,
     ) -> i64 {
-        if let Some(w) = self.writer.as_mut() {
-            // Convert Godot Dictionary to BTreeMap<String, String>
-            let meta_map = dict_to_btreemap(&metadata);
-
-            match w.add_channel(
-                schema_id as u16,
-                topic.to_string().as_str(),
-                message_encoding.to_string().as_str(),
-                &meta_map,
-            ) {
-                Ok(id) => id as i64,
-                Err(e) => {
-                    godot_error!("add_channel failed: {}", e);
-                    -1
-                }
-            }
-        } else {
-            godot_error!("add_channel called before open()");
-            -1
-        }
+        // Convert Godot Dictionary to BTreeMap<String, String>
+        let meta_map = dict_to_btreemap(&metadata);
+        self.with_writer(
+            "add_channel",
+            |w| {
+                w.add_channel(
+                    schema_id as u16,
+                    topic.to_string().as_str(),
+                    message_encoding.to_string().as_str(),
+                    &meta_map,
+                )
+                .map(|id| id as i64)
+            },
+            -1,
+        )
     }
 
     /// Write the given message (and its provided channel, if not already added).
@@ -141,29 +190,18 @@ impl MCAPWriter {
     /// Write a full message resource (channel provided in the resource) to the file.
     #[func]
     pub fn write(&mut self, message: Gd<crate::types::MCAPMessage>) -> bool {
-        if let Some(w) = self.writer.as_mut() {
-            let mcap_msg: Message = match message.bind().to_mcap_owned() {
-                Ok(m) => m,
-                Err(e) => {
-                    godot_error!(
-                        "write failed to convert MCAPMessage to mcap::Message: {}",
-                        e
-                    );
-                    return false;
-                }
-            };
-
-            match w.write(&mcap_msg) {
-                Ok(_) => true,
-                Err(e) => {
-                    godot_error!("write failed: {}", e);
-                    false
-                }
+        let mcap_msg: Message = match message.bind().to_mcap_owned() {
+            Ok(m) => m,
+            Err(e) => {
+                self.set_error(format!(
+                    "write failed to convert MCAPMessage to mcap::Message: {}",
+                    e
+                ));
+                return false;
             }
-        } else {
-            godot_error!("write called before open()");
-            false
-        }
+        };
+
+        self.with_writer("write", |w| w.write(&mcap_msg).map(|_| true), false)
     }
 
     /// Write a message to an added channel, given its ID.
@@ -175,32 +213,24 @@ impl MCAPWriter {
         header: Gd<MCAPMessageHeader>,
         data: PackedByteArray,
     ) -> bool {
-        if let Some(w) = self.writer.as_mut() {
-            let mcap_header: MessageHeader = match header.bind().to_mcap_owned() {
-                Ok(h) => h,
-                Err(e) => {
-                    godot_error!(
-                        "write_to_known_channel failed to convert MCAPMessageHeader to mcap::MessageHeader: {}",
-                        e
-                    );
-                    return false;
-                }
-            };
-
-            match w.write_to_known_channel(&mcap_header, data.as_slice()) {
-                Ok(_msg) => true,
-                Err(e) => {
-                    godot_error!(
-                        "write_to_known_channel failed to create mcap::Message: {}",
-                        e
-                    );
-                    return false;
-                }
+        let mcap_header: MessageHeader = match header.bind().to_mcap_owned() {
+            Ok(h) => h,
+            Err(e) => {
+                self.set_error(format!(
+                    "write_to_known_channel failed to convert MCAPMessageHeader to mcap::MessageHeader: {}",
+                    e
+                ));
+                return false;
             }
-        } else {
-            godot_error!("write_to_known_channel called before open()");
-            false
-        }
+        };
+
+        self.with_writer(
+            "write_to_known_channel",
+            |w| w
+                .write_to_known_channel(&mcap_header, data.as_slice())
+                .map(|_| true),
+            false,
+        )
     }
 
     /// Write a private record using the provided options.
@@ -213,76 +243,52 @@ impl MCAPWriter {
         data: PackedByteArray,
         include_in_chunks: bool,
     ) -> bool {
-        if let Some(w) = self.writer.as_mut() {
-            if opcode < 0x80 {
-                godot_error!("write_private_record called with opcode < 0x80");
-                return false;
-            }
-
-            let opts: EnumSet<PrivateRecordOptions> = if include_in_chunks {
-                EnumSet::only(PrivateRecordOptions::IncludeInChunks)
-            } else {
-                EnumSet::empty()
-            };
-            match w.write_private_record(opcode, data.as_slice(), opts) {
-                Ok(_) => true,
-                Err(e) => {
-                    godot_error!("write_private_record failed: {}", e);
-                    false
-                }
-            }
-        } else {
-            godot_error!("write_private_record called before open()");
-            false
+        if opcode < 0x80 {
+            self.set_error("write_private_record called with opcode < 0x80");
+            return false;
         }
+
+        let opts: EnumSet<PrivateRecordOptions> = if include_in_chunks {
+            EnumSet::only(PrivateRecordOptions::IncludeInChunks)
+        } else {
+            EnumSet::empty()
+        };
+
+        self.with_writer(
+            "write_private_record",
+            |w| w.write_private_record(opcode, data.as_slice(), opts).map(|_| true),
+            false,
+        )
     }
 
     /// Write an attachment to the MCAP file. This finishes any current chunk before writing the
     /// attachment.
     #[func]
     pub fn attach(&mut self, attachment: Gd<MCAPAttachment>) -> bool {
-        if let Some(w) = self.writer.as_mut() {
-            let mcap_attach: Attachment = match attachment.bind().to_mcap_owned() {
-                Ok(a) => a,
-                Err(e) => {
-                    godot_error!(
-                        "attach failed to convert MCAPAttachment to mcap::Attachment: {}",
-                        e
-                    );
-                    return false;
-                }
-            };
-
-            match w.attach(&mcap_attach) {
-                Ok(_) => true,
-                Err(e) => {
-                    godot_error!("attach failed: {}", e);
-                    false
-                }
+        let mcap_attach: Attachment = match attachment.bind().to_mcap_owned() {
+            Ok(a) => a,
+            Err(e) => {
+                self.set_error(format!(
+                    "attach failed to convert MCAPAttachment to mcap::Attachment: {}",
+                    e
+                ));
+                return false;
             }
-        } else {
-            godot_error!("attach called before open()");
-            false
-        }
+        };
+
+        self.with_writer("attach", |w| w.attach(&mcap_attach).map(|_| true), false)
     }
 
     /// Write a [Metadata](https://mcap.dev/spec#metadata-op0x0c) record to the MCAP file. This
     /// finishes any current chunk before writing the metadata.
     #[func]
     pub fn write_metadata(&mut self, metadata: Gd<MCAPMetadata>) -> bool {
-        if let Some(w) = self.writer.as_mut() {
-            let metadata: Metadata = metadata.bind().to_mcap_owned();
-            match w.write_metadata(&metadata) {
-                Ok(_) => true,
-                Err(e) => {
-                    godot_error!("write_metadata failed: {}", e);
-                    false
-                }
-            }
-        } else {
-            godot_error!("write_metadata called before open()");
-            false
-        }
+        let metadata: Metadata = metadata.bind().to_mcap_owned();
+        self.with_writer(
+            "write_metadata",
+            |w| w.write_metadata(&metadata).map(|_| true),
+            false,
+        )
     }
 
     /// Finishes the current chunk, if we have one, and flushes the underlying
@@ -302,18 +308,7 @@ impl MCAPWriter {
     /// of random data will compress terribly at any chunk size.)
     #[func]
     pub fn flush(&mut self) -> bool {
-        if let Some(w) = self.writer.as_mut() {
-            match w.flush() {
-                Ok(_) => true,
-                Err(e) => {
-                    godot_error!("flush failed: {}", e);
-                    false
-                }
-            }
-        } else {
-            godot_error!("flush called before open()");
-            false
-        }
+    self.with_writer("flush", |w| w.flush().map(|_| true), false)
     }
 
     /// Finalizes and closes the MCAP file. Returns true on success.
@@ -323,16 +318,25 @@ impl MCAPWriter {
     pub fn close(&mut self) -> bool {
         if let Some(mut w) = self.writer.take() {
             match w.finish() {
-                Ok(_summary) => true,
+                Ok(_summary) => {
+                    self.clear_error();
+                    true
+                }
                 Err(e) => {
-                    godot_error!("finish failed: {}", e);
+                    self.set_error(format!("finish failed: {}", e));
                     false
                 }
             }
         } else {
-            godot_error!("finish called before open()");
+            self.set_error("finish called before open()");
             false
         }
+    }
+
+    /// Returns the last encountered error message, or empty string if none.
+    #[func]
+    pub fn get_last_error(&self) -> GString {
+        GString::from(self.last_error.as_str())
     }
 }
 
