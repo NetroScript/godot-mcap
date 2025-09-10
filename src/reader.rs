@@ -9,11 +9,11 @@ use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 
 #[derive(GodotClass)]
-/// Godot-facing MCAP reader with streaming and indexed helpers.
+/// Godot-facing MCAP reader with sequential and indexed helpers.
 ///
 /// Memory & I/O
 /// - Opening a file loads the entire MCAP file into a PackedByteArray in memory for fast random access.
-/// - Streaming APIs (`stream_messages`, `stream_raw_messages`) iterate without requiring a summary.
+/// - Direct read APIs (`messages`, `raw_messages`) iterate without requiring a summary.
 /// - Indexed helpers (attachments, metadata, chunk/message indexes, and the iterator below) require a Summary section.
 ///
 /// Summary requirements
@@ -119,10 +119,10 @@ impl MCAPReader {
 		GString::from(self.last_error.as_str())
 	}
 
-	/// Streams all messages as Godot `MCAPMessage` resources (allocates payloads as needed).
+	/// Reads all messages as Godot `MCAPMessage` resources (allocates payloads as needed).
 	/// Stops automatically before the summary section.
 	#[func]
-	pub fn stream_messages(&mut self) -> Array<Gd<MCAPMessage>> {
+	pub fn messages(&mut self) -> Array<Gd<MCAPMessage>> {
 		let mut out: Array<Gd<MCAPMessage>> = Array::new();
 		self.clear_error();
 		let opts = self.opts_enumset();
@@ -149,20 +149,20 @@ impl MCAPReader {
 		out
 	}
 
-	/// Iterator version of stream_messages() for GDScript `for` loops.
+	/// Iterator version of messages() for GDScript `for` loops.
 	///
 	/// Details
 	/// - Requires a Summary section (uses chunk/message indexes for efficient seeking).
-	/// - For files without a summary, this iterator will be empty; use `stream_messages()` instead.
+	/// - For files without a summary, this iterator will be empty; use `messages()` instead.
 	#[func]
 	pub fn stream_messages_iterator(&self) -> Gd<MCAPMessageIterator> {
 		MCAPMessageIterator::new_from_reader(self, None)
 	}
 
-	/// Streams all raw messages (header + bytes) without constructing channels into Godot resources.
+	/// Reads all raw messages (header + bytes) without constructing channels into Godot resources.
 	/// Returns an array of Dictionaries: { header: MCAPMessageHeader, data: PackedByteArray }.
 	#[func]
-	pub fn stream_raw_messages(&mut self) -> Array<Dictionary> {
+	pub fn raw_messages(&mut self) -> Array<Dictionary> {
 		let mut out: Array<Dictionary> = Array::new();
 		self.clear_error();
 		let opts = self.opts_enumset();
