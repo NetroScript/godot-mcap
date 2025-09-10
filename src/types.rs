@@ -61,6 +61,104 @@ pub struct MCAPWriteOptions {
     pub compression_threads: u32,
 }
 
+/// Footer information of an MCAP file
+#[derive(GodotClass)]
+#[class(no_init, base=Resource)]
+pub struct MCAPFooter {
+    #[export]
+    pub summary_start: i64,
+    #[export]
+    pub summary_offset_start: i64,
+    #[export]
+    pub summary_crc: i64,
+}
+
+/// Chunk index entry (from summary)
+#[derive(GodotClass)]
+#[class(no_init, base=Resource)]
+pub struct MCAPChunkIndex {
+    #[export]
+    pub message_start_time: i64,
+    #[export]
+    pub message_end_time: i64,
+    #[export]
+    pub chunk_start_offset: i64,
+    #[export]
+    pub chunk_length: i64,
+    #[export]
+    pub message_index_offsets: Dictionary, // u16 -> u64
+    #[export]
+    pub message_index_length: i64,
+    #[export]
+    pub compression: GString,
+    #[export]
+    pub compressed_size: i64,
+    #[export]
+    pub uncompressed_size: i64,
+}
+
+/// Per-message index entry within a chunk
+#[derive(GodotClass)]
+#[class(no_init, base=Resource)]
+pub struct MCAPMessageIndexEntry {
+    #[export]
+    pub channel_id: i32,
+    #[export]
+    pub log_time_usec: i64,
+    #[export]
+    pub offset_uncompressed: i64,
+}
+
+/// Attachment index
+#[derive(GodotClass)]
+#[class(no_init, base=Resource)]
+pub struct MCAPAttachmentIndex {
+    #[export]
+    pub offset: i64,
+    #[export]
+    pub length: i64,
+    #[export]
+    pub log_time: i64,
+    #[export]
+    pub create_time: i64,
+    #[export]
+    pub data_size: i64,
+    #[export]
+    pub name: GString,
+    #[export]
+    pub media_type: GString,
+}
+
+/// Metadata index
+#[derive(GodotClass)]
+#[class(no_init, base=Resource)]
+pub struct MCAPMetadataIndex {
+    #[export]
+    pub offset: i64,
+    #[export]
+    pub length: i64,
+    #[export]
+    pub name: GString,
+}
+
+/// Summary resource wrapper (channels/schemas/indexes)
+#[derive(GodotClass)]
+#[class(no_init, base=Resource)]
+pub struct MCAPSummary {
+    #[export]
+    pub stats: Dictionary,
+    #[export]
+    pub channels_by_id: Dictionary, // u16 -> MCAPChannel
+    #[export]
+    pub schemas_by_id: Dictionary,  // u16 -> MCAPSchema
+    #[export]
+    pub chunk_indexes: Array<Gd<MCAPChunkIndex>>,
+    #[export]
+    pub attachment_indexes: Array<Gd<MCAPAttachmentIndex>>,
+    #[export]
+    pub metadata_indexes: Array<Gd<MCAPMetadataIndex>>,
+}
+
 /// Describes a schema used by one or more [MCAPChannel]s in an MCAP file
 #[derive(GodotClass)]
 #[class(no_init, base=Resource)]

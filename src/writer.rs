@@ -24,7 +24,7 @@ struct MCAPWriter {
     writer: Option<Writer<GFile>>,
     /// Options for writing the MCAP file. Modify these before calling `open()`.
     #[export]
-    options: OnEditor<Gd<MCAPWriteOptions>>,
+    options: Option<Gd<MCAPWriteOptions>>,
     // Internal last error string
     last_error: String,
 }
@@ -105,8 +105,12 @@ impl MCAPWriter {
             }
         };
 
-        // 2) build MCAP WriteOptions from Resource
-        let opts = self.options.bind().to_mcap_owned();
+        // 2) build MCAP WriteOptions from Resource if provided, else use defaults
+        if self.options.is_none() {
+            let default_opts = MCAPWriteOptions::new_gd();
+            self.options = Some(default_opts);
+        }
+        let opts = self.options.as_ref().unwrap().bind().to_mcap_owned();
 
         // 3) create writer with options
         match opts.create(file) {

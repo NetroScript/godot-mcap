@@ -1,4 +1,5 @@
 mod writer;
+mod reader;
 mod util;
 #[macro_use]
 mod types;
