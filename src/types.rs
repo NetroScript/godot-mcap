@@ -150,7 +150,7 @@ pub struct MCAPSummary {
     #[export]
     pub channels_by_id: Dictionary, // u16 -> MCAPChannel
     #[export]
-    pub schemas_by_id: Dictionary,  // u16 -> MCAPSchema
+    pub schemas_by_id: Dictionary, // u16 -> MCAPSchema
     #[export]
     pub chunk_indexes: Array<Gd<MCAPChunkIndex>>,
     #[export]
