@@ -2,7 +2,7 @@ use godot::prelude::*;
 
 /// Compression methods supported when writing MCAP files
 #[derive(GodotConvert, Var, Export)]
-#[godot(via = GString)]
+#[godot(via = i64)]
 pub enum MCAPCompression {
     /// Do not compress chunks.
     None,

@@ -1,22 +1,95 @@
 use crate::{types::*, util::*};
 use enumset::EnumSet;
+use godot::classes::RefCounted;
 use godot::classes::file_access::ModeFlags;
-use godot::classes::{RefCounted};
 use godot::prelude::*;
 use godot::tools::GFile;
 use mcap::records::Metadata;
 use mcap::write::PrivateRecordOptions;
 use mcap::{Attachment, Message, Writer, records::MessageHeader};
 
-
-
 #[derive(GodotClass)]
-/// This class allows writing MCAP files.
+/// MCAP file writer for Godot.
 ///
-/// Error handling:
-/// - Methods that return `bool` will return `false` on failure and set an internal last-error message.
-/// - Call [`get_last_error()`] to retrieve the most recent error as a `GString`.
-/// - On successful operations, the last error is cleared.
+/// Overview
+/// - Opens a file and writes MCAP records (channels, schemas, messages, attachments, metadata).
+/// - Accepts either full `MCAPMessage` resources via `write()` or pairs of header+payload via `write_to_known_channel()`.
+/// - Exposes a configurable `options` Resource to control chunking, compression, and emitted indexes before opening.
+///
+/// Error handling
+/// - Methods returning `bool` yield `false` on failure and set an internal last-error string.
+/// - Use `get_last_error()` to retrieve the message; success clears the last error.
+/// - If the writer is dropped without `close()`, it will attempt to finalize the file in `Drop`.
+///
+/// Minimal example
+/// ```gdscript
+/// var writer := MCAPWriter.new()
+/// if writer.open("user://test.mcap"):
+///     var ch := MCAPChannel.create("messages")
+///     # Optional: set encoding if needed
+///     # ch.message_encoding = "raw" # e.g. "json"
+///
+///     var msg := MCAPMessage.create(ch, var_to_bytes_with_objects("Hello World"))
+///
+///     writer.write(msg)
+///     writer.close()
+/// else:
+///     push_error(writer.get_last_error())
+/// ```
+///
+/// Full example with options, schemas, and channels
+/// ```gdscript
+/// var w := MCAPWriter.new()
+/// # Optional: tune options before opening
+/// w.options = MCAPWriteOptions.new()
+/// w.options.compression = MCAPCompression.None
+/// w.options.emit_summary_offsets = true
+/// w.options.emit_message_indexes = true
+/// w.options.emit_chunk_indexes = true
+///
+/// if not w.open("user://out.mcap"):
+///     push_error("open failed: %s" % w.get_last_error())
+///     return
+///
+/// # Define a schema (optional)
+/// var schema_id := w.add_schema("MyType", "jsonschema", PackedByteArray())
+/// if schema_id < 0:
+///     push_error("add_schema failed: %s" % w.get_last_error())
+///
+/// # Add a channel
+/// var ch_id := w.add_channel(schema_id, "/ch", "json", {})
+/// if ch_id < 0:
+///     push_error("add_channel failed: %s" % w.get_last_error())
+///
+/// # Write messages to the known channel
+/// var hdr := MCAPMessageHeader.create(ch_id)
+/// hdr.sequence = 1
+/// hdr.log_time = 1_000_000 # usec
+/// hdr.publish_time = 1_000_000
+/// var payload := PackedByteArray("{\"hello\":\"world\"}".to_utf8_buffer())
+/// if not w.write_to_known_channel(hdr, payload):
+///     push_error("write_to_known_channel failed: %s" % w.get_last_error())
+///
+/// # Optionally write an attachment or metadata
+/// # var att := MCAPAttachment.create("snapshot.bin", "application/octet-stream", PackedByteArray())
+/// # w.attach(att)
+/// # var meta := MCAPMetadata.create("run_info", {"key": "value"})
+/// # w.write_metadata(meta)
+///
+/// # Ensure chunks end cleanly for streaming readers
+/// w.flush()
+///
+/// # Finalize the file
+/// if not w.close():
+///     push_error("close failed: %s" % w.get_last_error())
+/// ```
+///
+/// Notes
+/// - Set or replace `options` before calling `open()`; they’re read once to construct the writer.
+/// - `write()` converts a full MCAPMessage Resource to mcap::Message (includes the channel fields).
+/// - `write_to_known_channel()` avoids schema/channel lookups when you already have their IDs.
+/// - `flush()` finishes the current chunk and flushes I/O to keep the file streamable mid-session.
+/// - Timestamps are microseconds (usec).
 #[class(init)]
 struct MCAPWriter {
     base: Base<RefCounted>,
@@ -92,8 +165,8 @@ impl MCAPWriter {
         }
 
         self.path = path;
-    // reset last error for a fresh session
-    self.clear_error();
+        // reset last error for a fresh session
+        self.clear_error();
 
         // 1) open file
         let file = match GFile::open(&self.path, ModeFlags::WRITE) {
@@ -230,9 +303,10 @@ impl MCAPWriter {
 
         self.with_writer(
             "write_to_known_channel",
-            |w| w
-                .write_to_known_channel(&mcap_header, data.as_slice())
-                .map(|_| true),
+            |w| {
+                w.write_to_known_channel(&mcap_header, data.as_slice())
+                    .map(|_| true)
+            },
             false,
         )
     }
@@ -260,7 +334,10 @@ impl MCAPWriter {
 
         self.with_writer(
             "write_private_record",
-            |w| w.write_private_record(opcode, data.as_slice(), opts).map(|_| true),
+            |w| {
+                w.write_private_record(opcode, data.as_slice(), opts)
+                    .map(|_| true)
+            },
             false,
         )
     }
@@ -312,7 +389,7 @@ impl MCAPWriter {
     /// of random data will compress terribly at any chunk size.)
     #[func]
     pub fn flush(&mut self) -> bool {
-    self.with_writer("flush", |w| w.flush().map(|_| true), false)
+        self.with_writer("flush", |w| w.flush().map(|_| true), false)
     }
 
     /// Finalizes and closes the MCAP file. Returns true on success.

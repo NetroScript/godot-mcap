@@ -40,6 +40,21 @@ impl IResource for MCAPWriteOptions {
 }
 
 #[godot_api]
+impl MCAPWriteOptions {
+    #[constant]
+    /// No compression.
+    const MCAP_COMPRESSION_NONE: i32 = MCAPCompression::None as i32;
+    #[cfg(feature = "zstd")]
+    #[constant]
+    /// Zstandard compression.
+    const MCAP_COMPRESSION_ZSTD: i32 = MCAPCompression::Zstd as i32;
+    #[cfg(feature = "lz4")]
+    #[constant]
+    /// LZ4 frame compression.
+    const MCAP_COMPRESSION_LZ4: i32 = MCAPCompression::Lz4 as i32;
+}
+
+#[godot_api]
 impl MCAPSchema {
     /// Create a schema resource (id will be assigned when written).
     #[func]
