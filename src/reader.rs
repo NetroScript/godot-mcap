@@ -648,5 +648,97 @@ impl MCAPMessageIterator {
 			None => Variant::nil(),
 		}
 	}
+
+	/// Reset iterator to the start, clearing any peeked value and state.
+	#[func]
+	pub fn rewind(&mut self) {
+		self.reset_iteration_state();
+	}
+
+	/// Remove any channel filter and reset iteration.
+	#[func]
+	pub fn clear_filter(&mut self) {
+		self.filter_channel = None;
+		self.reset_iteration_state();
+	}
+
+	/// Return the number of messages yielded so far.
+	#[func]
+	pub fn current_index(&self) -> i64 {
+		self.index
+	}
+
+	/// Seek iterator to the first message with log_time >= given timestamp (microseconds).
+	/// Returns true if positioned on or before a valid next message.
+	#[func]
+	pub fn seek_to_time(&mut self, log_time_usec: i64) -> bool {
+		if !self.ensure_summary() { return false; }
+		self.reset_iteration_state();
+		let t: u64 = if log_time_usec < 0 { 0 } else { log_time_usec as u64 };
+		let summary = match &self.summary { Some(s) => s, None => return false };
+		while self.chunk_i < summary.chunk_indexes.len() {
+			let chunk_idx = &summary.chunk_indexes[self.chunk_i];
+			if chunk_idx.message_end_time < t {
+				self.chunk_i += 1;
+				continue;
+			}
+			self.per_channel.clear();
+			self.heap.clear();
+			match summary.read_message_indexes(self.buf.as_slice(), chunk_idx) {
+				Ok(map) => {
+					for (ch, entries) in map.into_iter() {
+						let ch_id = ch.id;
+						if let Some(filter) = self.filter_channel { if ch_id != filter { continue; } }
+						if entries.is_empty() { continue; }
+						let start_idx = match entries.binary_search_by(|e| e.log_time.cmp(&t)) { Ok(i) => i, Err(i) => i };
+						if start_idx < entries.len() {
+							self.per_channel.insert(ch_id, entries);
+							let first = &self.per_channel.get(&ch_id).unwrap()[start_idx];
+							self.heap.push(std::cmp::Reverse((first.log_time, ch_id, start_idx)));
+						}
+					}
+					if !self.heap.is_empty() { return true; }
+				}
+				Err(e) => {
+					godot_error!("MCAPMessageIterator: read_message_indexes(seek_to_time) failed: {}", e);
+				}
+			}
+			self.chunk_i += 1;
+		}
+		false
+	}
+
+	/// Check if another message is available without consuming it.
+	#[func]
+	pub fn has_next_message(&mut self) -> bool {
+		if self.peek.is_none() {
+			self.peek = self.next_message_internal();
+		}
+		self.peek.is_some()
+	}
+
+	/// Fetch and advance to the next message; returns null if none.
+	#[func]
+	pub fn get_next_message(&mut self) -> Option<Gd<MCAPMessage>> {
+		if self.peek.is_none() {
+			self.peek = self.next_message_internal();
+		}
+		match self.peek.take() {
+			Some(gd) => {
+				self.index += 1;
+				Some(gd)
+			}
+			None => None,
+		}
+	}
+
+	/// Return, without consuming, the next message if available.
+	#[func]
+	pub fn peek_message(&mut self) -> Option<Gd<MCAPMessage>> {
+		if self.peek.is_none() {
+			self.peek = self.next_message_internal();
+		}
+		self.peek.clone()
+	}
 }
 
