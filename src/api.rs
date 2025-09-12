@@ -43,15 +43,15 @@ impl IResource for MCAPWriteOptions {
 impl MCAPWriteOptions {
     #[constant]
     /// No compression.
-    const MCAP_COMPRESSION_NONE: i32 = MCAPCompression::None as i32;
+    const MCAP_COMPRESSION_NONE: i64 = MCAPCompression::None as i64;
     #[cfg(feature = "zstd")]
     #[constant]
     /// Zstandard compression.
-    const MCAP_COMPRESSION_ZSTD: i32 = MCAPCompression::Zstd as i32;
+    const MCAP_COMPRESSION_ZSTD: i64 = MCAPCompression::Zstd as i64;
     #[cfg(feature = "lz4")]
     #[constant]
     /// LZ4 frame compression.
-    const MCAP_COMPRESSION_LZ4: i32 = MCAPCompression::Lz4 as i32;
+    const MCAP_COMPRESSION_LZ4: i64 = MCAPCompression::Lz4 as i64;
 }
 
 #[godot_api]
