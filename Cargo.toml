@@ -2,6 +2,7 @@
 name = "godot-mcap"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 
 [dependencies]
 godot = { version = "0.3.5", features = ["api-4-3", "register-docs"] }
