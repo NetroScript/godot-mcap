@@ -1,0 +1,49 @@
+accepted = [
+    "Apache-2.0",
+    "MIT",
+    "MPL-2.0",
+]
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+
+[unicode-ident]
+accepted = [
+    "Unicode-3.0"
+]
+
+[zstd-sys]
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-3-Clause",
+]
+[zstd-sys.clarify]
+license = "(MIT OR Apache-2.0) AND BSD-3-Clause"
+[[zstd-sys.clarify.files]]
+path = "LICENSE.Mit"
+license = "MIT"
+checksum = '129e8edef29e9abcd2ebabe252f4ef1b1289cdca356bf0040284a2fbccfb96c8'
+[[zstd-sys.clarify.files]]
+path = "LICENSE.Apache-2.0"
+license = "Apache-2.0"
+checksum = '0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594'
+[[zstd-sys.clarify.files]]
+path = "LICENSE.BSD-3-Clause"
+license = "BSD-3-Clause"
+checksum = '48341f685c87304089aa099b23c386f8bacc519ef555aa7a13e239908907b3fd'
+
+[lz4-sys]
+accepted = [
+    "MIT",
+    "BSD-2-Clause",
+]
+[lz4-sys.clarify]
+license = "MIT AND BSD-2-Clause"
+[[lz4-sys.clarify.files]]
+path = "LICENSE"
+license = "MIT"
+checksum = '77633124ac69bf094e06cf9f3157c54d6e51d6b58a38d4f28141947815ecadfa'
+[[lz4-sys.clarify.files]]
+path = "liblz4/lib/LICENSE"
+license = "BSD-2-Clause"
+checksum = '8b58c446121a109ccf32edc094bba3010a3d85e4ee3702950db55e4d3e87736c'

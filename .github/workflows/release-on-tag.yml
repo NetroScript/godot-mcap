@@ -1,0 +1,146 @@
+name: release-on-tag
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build - ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            bin: libgodot_mcap.so
+            final_name: godot_mcap.so
+
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin: godot_mcap.dll
+            final_name: godot_mcap.dll
+
+          - runner: macos-latest
+            target: x86_64-apple-darwin
+            bin: libgodot_mcap.dylib
+            final_name: godot_mcap_x64.dylib
+
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            bin: libgodot_mcap.dylib
+            final_name: godot_mcap_arm.dylib
+
+          - runner: ubuntu-latest
+            target: aarch64-linux-android
+            bin: libgodot_mcap.so
+            final_name: libgodot_mcap_arm64.so
+
+          - runner: ubuntu-latest
+            target: armv7-linux-androideabi
+            bin: libgodot_mcap.so
+            final_name: libgodot_mcap_armv7.so
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cargo-ndk
+        if: startsWith(matrix.target, 'aarch64-linux-android') || startsWith(matrix.target, 'armv7-linux-androideabi')
+        run: |
+          cargo install cargo-ndk
+          rustup target add aarch64-linux-android armv7-linux-androideabi
+          rustup target install aarch64-linux-android armv7-linux-androideabi
+
+      - name: Setup Android NDK
+        if: startsWith(matrix.target, 'aarch64-linux-android') || startsWith(matrix.target, 'armv7-linux-androideabi')
+        uses: nttld/setup-ndk@v1.5.0
+        with:
+          ndk-version: r27c
+
+      - name: Setup Java JDK
+        if: startsWith(matrix.target, 'aarch64-linux-android') || startsWith(matrix.target, 'armv7-linux-androideabi')
+        uses: actions/setup-java@v4.7.1
+        with:
+          java-version: 17
+          distribution: temurin
+          java-package: jdk
+
+      - name: Build rust binary
+        if: startsWith(matrix.target, 'x86_64-unknown-linux-gnu') || startsWith(matrix.target, 'x86_64-pc-windows-msvc') || startsWith(matrix.target, 'x86_64-apple-darwin') || startsWith(matrix.target, 'aarch64-apple-darwin')
+        run: cargo build --verbose --locked --release --target ${{ matrix.target }}
+
+      - name: Build rust binary for android
+        if: startsWith(matrix.target, 'aarch64-linux-android') || startsWith(matrix.target, 'armv7-linux-androideabi')
+        run: cargo ndk -t ${{ matrix.target }} build --release --verbose
+
+      - name: Rename to final_name
+        run: mv target/${{ matrix.target }}/release/${{ matrix.bin }} target/${{ matrix.target }}/release/${{ matrix.final_name }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.final_name }}
+          path: target/${{ matrix.target }}/release/${{ matrix.final_name }}
+
+  package:
+    runs-on: macos-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all binaries into addons/godot_mcap
+        uses: actions/download-artifact@v4
+        with:
+          path: addons/godot_mcap
+          merge-multiple: true
+
+      # Make a universal macOS dylib from the two arch builds
+      - name: Build macOS universal dylib
+        run: |
+          lipo -create \
+            -output addons/godot_mcap/godot_mcap.dylib \
+            addons/godot_mcap/godot_mcap_x64.dylib \
+            addons/godot_mcap/godot_mcap_arm.dylib
+          rm addons/godot_mcap/godot_mcap_x64.dylib addons/godot_mcap/godot_mcap_arm.dylib
+
+      - name: Generate third party notices
+        run: |
+          cargo install cargo-about --locked
+          cargo about generate about.hbs > addons/godot_mcap/LICENSE_NOTICES.html
+
+      - name: Zip addon folder
+        run: |
+          zip -r godot_mcap.zip addons
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: package
+          path: godot_mcap.zip
+
+  release:
+    runs-on: ubuntu-latest
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: Download package
+        uses: actions/download-artifact@v4
+        with:
+          name: package
+          path: .
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          draft: true
+          generate_release_notes: true
+          files: godot_mcap.zip
