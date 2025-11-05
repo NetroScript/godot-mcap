@@ -1,12 +1,11 @@
 use crate::{types::*, util::*};
 use enumset::EnumSet;
-use godot::classes::RefCounted;
-use godot::classes::file_access::ModeFlags;
+use godot::classes::{file_access::ModeFlags, RefCounted, Time};
 use godot::prelude::*;
 use godot::tools::GFile;
 use mcap::records::Metadata;
 use mcap::write::PrivateRecordOptions;
-use mcap::{Attachment, Message, Writer, records::MessageHeader};
+use mcap::Writer;
 
 #[derive(GodotClass)]
 /// MCAP file writer for Godot.
@@ -89,7 +88,8 @@ use mcap::{Attachment, Message, Writer, records::MessageHeader};
 /// - `write()` converts a full MCAPMessage Resource to mcap::Message (includes the channel fields).
 /// - `write_to_known_channel()` avoids schema/channel lookups when you already have their IDs.
 /// - `flush()` finishes the current chunk and flushes I/O to keep the file streamable mid-session.
-/// - Timestamps are microseconds (usec).
+/// - Timestamps are microseconds (usec). Configure `set_timestamp_offset_*()` if you need to
+///   shift the stored timebase for messages created with engine-relative clocks.
 #[class(init)]
 struct MCAPWriter {
     base: Base<RefCounted>,
@@ -100,6 +100,10 @@ struct MCAPWriter {
     options: Option<Gd<MCAPWriteOptions>>,
     // Internal last error string
     last_error: String,
+    // Microsecond offset applied when writing message/attachment timestamps
+    timestamp_offset_usec: i64,
+    // Once a time-bearing record has been written the offset can no longer change
+    timestamp_offset_locked: bool,
 }
 
 impl MCAPWriter {
@@ -150,6 +154,51 @@ impl MCAPWriter {
             err_ret
         }
     }
+
+    fn ensure_offset_mutable(&mut self, caller: &str) -> bool {
+        if self.timestamp_offset_locked {
+            self.set_error(format!(
+                "{} called after writing time-bearing records; the timestamp offset is locked",
+                caller
+            ));
+            return false;
+        }
+        true
+    }
+
+    fn set_timestamp_offset_internal(&mut self, caller: &str, offset: i64) -> bool {
+        if !self.ensure_offset_mutable(caller) {
+            return false;
+        }
+        self.timestamp_offset_usec = offset;
+        self.clear_error();
+        true
+    }
+
+    fn adjust_timestamp(&self, value: u64, what: &str) -> Result<u64, String> {
+        if self.timestamp_offset_usec == 0 {
+            return Ok(value);
+        }
+
+        if self.timestamp_offset_usec > 0 {
+            let offset = self.timestamp_offset_usec as u64;
+            if value < offset {
+                return Err(format!(
+                    "{what} ({value}) is earlier than the configured timestamp offset ({offset})"
+                ));
+            }
+            Ok(value - offset)
+        } else {
+            let offset = (-self.timestamp_offset_usec) as u64;
+            value
+                .checked_add(offset)
+                .ok_or_else(|| format!("{what} overflowed when applying the timestamp offset"))
+        }
+    }
+
+    fn lock_timestamp_offset(&mut self) {
+        self.timestamp_offset_locked = true;
+    }
 }
 
 #[godot_api]
@@ -189,6 +238,7 @@ impl MCAPWriter {
         match opts.create(file) {
             Ok(w) => {
                 self.writer = Some(w);
+                self.timestamp_offset_locked = false;
                 self.clear_error();
                 true
             }
@@ -214,6 +264,28 @@ impl MCAPWriter {
         self.path.clone()
     }
 
+    /// Sets the microsecond offset that will be applied to subsequent message and attachment timestamps.
+    /// Positive offsets shift timestamps backwards (toward zero); negative offsets shift them forward.
+    /// The offset can be changed freely until a time-bearing record is written, after which it locks.
+    /// If applying the offset would underflow a timestamp, the write call will fail with an error.
+    #[func]
+    pub fn set_timestamp_offset_usec(&mut self, offset: i64) -> bool {
+        self.set_timestamp_offset_internal("set_timestamp_offset_usec", offset)
+    }
+
+    /// Convenience helper that treats the current engine ticks as the zero point for future writes.
+    #[func]
+    pub fn set_timestamp_offset_to_now(&mut self) -> bool {
+        let now = Time::singleton().get_ticks_usec() as i64;
+        self.set_timestamp_offset_internal("set_timestamp_offset_to_now", now)
+    }
+
+    /// Returns the currently configured timestamp offset in microseconds.
+    #[func]
+    pub fn get_timestamp_offset_usec(&self) -> i64 {
+        self.timestamp_offset_usec
+    }
+
     /// Adds a schema, returning its ID. If a schema with the same content has been added already,
     /// its ID is returned. Returns -1 on error.
     ///
@@ -233,7 +305,7 @@ impl MCAPWriter {
                     encoding.to_string().as_str(),
                     data.as_slice(),
                 )
-                .map(|id| id as i64)
+                    .map(|id| id as i64)
             },
             -1,
         )
@@ -244,10 +316,7 @@ impl MCAPWriter {
     ///
     /// * `schema`: The MCAPSchema resource to add.
     #[func]
-    pub fn add_schema_object(
-        &mut self,
-        mut schema: Gd<crate::types::MCAPSchema>,
-    ) {
+    pub fn add_schema_object(&mut self, mut schema: Gd<crate::types::MCAPSchema>) {
         let mut sc = schema.bind_mut();
         let new_id = self.with_writer(
             "add_schema_object",
@@ -294,7 +363,7 @@ impl MCAPWriter {
                     message_encoding.to_string().as_str(),
                     &meta_map,
                 )
-                .map(|id| id as i64)
+                    .map(|id| id as i64)
             },
             -1,
         )
@@ -306,10 +375,7 @@ impl MCAPWriter {
     ///
     /// * `channel`: The MCAPChannel resource to add.
     #[func]
-    pub fn add_channel_object(
-        &mut self,
-        mut channel: Gd<crate::types::MCAPChannel>,
-    ) {
+    pub fn add_channel_object(&mut self, mut channel: Gd<crate::types::MCAPChannel>) {
         let mut ch = channel.bind_mut();
         // Convert Godot Dictionary to BTreeMap<String, String>
         let meta_map = dict_to_btreemap(&ch.metadata);
@@ -326,60 +392,100 @@ impl MCAPWriter {
                     ch.message_encoding.to_string().as_str(),
                     &meta_map,
                 )
-
             },
             0,
         );
-       ch.id = new_id;
+        ch.id = new_id;
     }
 
     /// Write the given message (and its provided channel, if not already added).
     /// The provided channel ID and schema ID will be used as IDs in the resulting MCAP.
-    /// Write a full message resource (channel provided in the resource) to the file.
+    /// The writer applies its configured timestamp offset before serializing the record.
     #[func]
     pub fn write(&mut self, message: Gd<crate::types::MCAPMessage>) -> bool {
-        let mcap_msg: Message = match message.bind().to_mcap_owned() {
-            Ok(m) => m,
-            Err(e) => {
+        let mut mcap_msg = match message.bind().to_mcap_owned() {
+            Ok(msg) => msg,
+            Err(err) => {
                 self.set_error(format!(
                     "write failed to convert MCAPMessage to mcap::Message: {}",
-                    e
+                    err
                 ));
                 return false;
             }
         };
 
-        self.with_writer("write", |w| w.write(&mcap_msg).map(|_| true), false)
+        mcap_msg.log_time = match self.adjust_timestamp(mcap_msg.log_time, "message.log_time") {
+            Ok(t) => t,
+            Err(err) => {
+                self.set_error(err);
+                return false;
+            }
+        };
+        mcap_msg.publish_time =
+            match self.adjust_timestamp(mcap_msg.publish_time, "message.publish_time") {
+                Ok(t) => t,
+                Err(err) => {
+                    self.set_error(err);
+                    return false;
+                }
+            };
+
+        let ok = self.with_writer("write", |w| w.write(&mcap_msg).map(|_| true), false);
+        if ok {
+            self.lock_timestamp_offset();
+        }
+        ok
     }
 
     /// Write a message to an added channel, given its ID.
     ///
     /// This skips hash lookups of the channel and schema if you already added them.
+    /// The writer applies its configured timestamp offset before serializing the record.
     #[func]
     pub fn write_to_known_channel(
         &mut self,
         header: Gd<MCAPMessageHeader>,
         data: PackedByteArray,
     ) -> bool {
-        let mcap_header: MessageHeader = match header.bind().to_mcap_owned() {
+        let mut mcap_header = match header.bind().to_mcap_owned() {
             Ok(h) => h,
-            Err(e) => {
-                self.set_error(format!(
-                    "write_to_known_channel failed to convert MCAPMessageHeader to mcap::MessageHeader: {}",
-                    e
-                ));
+            Err(err) => {
+                self.set_error(format!("write_to_known_channel failed to convert MCAPMessageHeader to mcap::MessageHeader: {}", err));
                 return false;
             }
         };
 
-        self.with_writer(
+        mcap_header.log_time = match self.adjust_timestamp(mcap_header.log_time, "header.log_time")
+        {
+            Ok(t) => t,
+            Err(err) => {
+                self.set_error(err);
+                return false;
+            }
+        };
+        mcap_header.publish_time =
+            match self.adjust_timestamp(mcap_header.publish_time, "header.publish_time") {
+                Ok(t) => t,
+                Err(err) => {
+                    self.set_error(err);
+                    return false;
+                }
+            };
+
+        let ok = self.with_writer(
             "write_to_known_channel",
             |w| {
                 w.write_to_known_channel(&mcap_header, data.as_slice())
                     .map(|_| true)
             },
             false,
-        )
+        );
+
+        if ok {
+            self.lock_timestamp_offset();
+        }
+
+        ok
     }
 
     /// Write a private record using the provided options.
@@ -414,21 +520,42 @@ impl MCAPWriter {
     }
 
     /// Write an attachment to the MCAP file. This finishes any current chunk before writing the
-    /// attachment.
+    /// attachment. The writer applies its configured timestamp offset to the attachment timestamps.
     #[func]
     pub fn attach(&mut self, attachment: Gd<MCAPAttachment>) -> bool {
-        let mcap_attach: Attachment = match attachment.bind().to_mcap_owned() {
-            Ok(a) => a,
-            Err(e) => {
+        let mut mcap_attach = match attachment.bind().to_mcap_owned() {
+            Ok(att) => att,
+            Err(err) => {
                 self.set_error(format!(
                     "attach failed to convert MCAPAttachment to mcap::Attachment: {}",
-                    e
+                    err
                 ));
                 return false;
             }
         };
 
-        self.with_writer("attach", |w| w.attach(&mcap_attach).map(|_| true), false)
+        mcap_attach.log_time =
+            match self.adjust_timestamp(mcap_attach.log_time, "attachment.log_time") {
+                Ok(t) => t,
+                Err(err) => {
+                    self.set_error(err);
+                    return false;
+                }
+            };
+        mcap_attach.create_time =
+            match self.adjust_timestamp(mcap_attach.create_time, "attachment.create_time") {
+                Ok(t) => t,
+                Err(err) => {
+                    self.set_error(err);
+                    return false;
+                }
+            };
+
+        let ok = self.with_writer("attach", |w| w.attach(&mcap_attach).map(|_| true), false);
+        if ok {
+            self.lock_timestamp_offset();
+        }
+        ok
     }
 
     /// Write a [Metadata](https://mcap.dev/spec#metadata-op0x0c) record to the MCAP file. This
@@ -472,10 +599,12 @@ impl MCAPWriter {
             match w.finish() {
                 Ok(_summary) => {
                     self.clear_error();
+                    self.timestamp_offset_locked = false;
                     true
                 }
                 Err(e) => {
                     self.set_error(format!("finish failed: {}", e));
+                    self.timestamp_offset_locked = false;
                     false
                 }
             }

@@ -86,6 +86,7 @@ impl MCAPChannel {
 #[godot_api]
 impl MCAPMessage {
     /// Create a message using the current engine time for log & publish timestamps.
+    /// The persisted timestamp may differ if the writer applies a timestamp offset.
     #[func]
     fn create(channel: Gd<MCAPChannel>, data: PackedByteArray) -> Gd<Self> {
         let now = Time::singleton().get_ticks_usec();
@@ -101,6 +102,7 @@ impl MCAPMessage {
     }
 
     /// Create a message with an explicit microsecond timestamp (used for both log & publish).
+    /// The persisted timestamp may differ if the writer applies a timestamp offset.
     #[func]
     fn create_with_timestamp(
         channel: Gd<MCAPChannel>,
@@ -122,6 +124,7 @@ impl MCAPMessage {
 #[godot_api]
 impl MCAPAttachment {
     /// Create an attachment using the current engine time for log & create timestamps.
+    /// The persisted timestamps may differ if the writer applies a timestamp offset.
     #[func]
     fn create(name: GString, media_type: GString, data: PackedByteArray) -> Gd<Self> {
         let now = Time::singleton().get_ticks_usec();
@@ -135,6 +138,7 @@ impl MCAPAttachment {
     }
 
     /// Create an attachment with an explicit microsecond timestamp (used for both log & create).
+    /// The persisted timestamps may differ if the writer applies a timestamp offset.
     #[func]
     fn create_with_timestamp(
         name: GString,
@@ -155,6 +159,7 @@ impl MCAPAttachment {
 #[godot_api]
 impl MCAPMessageHeader {
     /// Create a message header using the current engine time for both timestamps.
+    /// The persisted timestamp may differ if the writer applies a timestamp offset.
     #[func]
     fn create(channel_id: i32) -> Gd<Self> {
         let now = Time::singleton().get_ticks_usec();
@@ -167,6 +172,7 @@ impl MCAPMessageHeader {
     }
 
     /// Create a message header with an explicit timestamp (applied to log & publish).
+    /// The persisted timestamp may differ if the writer applies a timestamp offset.
     #[func]
     fn create_with_timestamp(channel_id: i32, time: u64) -> Gd<Self> {
         Gd::from_object(Self {

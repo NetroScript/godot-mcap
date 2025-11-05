@@ -19,6 +19,7 @@ This extension is built with godot-rust and targets Godot >=4.3 APIs.
 	- Add schemas, channels, attachments, metadata
 	- Write full messages or header+payload to known channels
 	- Chunking and compression (Zstd and/or LZ4 when enabled at build time)
+	- Timestamp offset for aligning engine-relative clocks
 - Reader
 	- Direct message streaming without indexes
 	- Indexed queries when a Summary is present (time windows, per-channel, counts)
@@ -78,7 +79,7 @@ Notes
 
 ## Quickstart
 
-All timestamps are microseconds (usec) by default. They are using the engine time since startup. However you are free to also use any other time scheme. 
+All timestamps are microseconds (usec) by default. They use the engine time since startup, but you can shift the stored values with `MCAPWriter.set_timestamp_offset_usec()` (or `set_timestamp_offset_to_now()`) to align it them differently (or to have the timestamps start at 0). Alternatively, you can not provide a timestamp offset and write absolute timestamps if you prefer.
 
 ### Write an MCAP file (GDScript)
 
@@ -92,6 +93,9 @@ w.options.compression = MCAPWriteOptions.MCAP_COMPRESSION_ZSTD # or LZ4/None dep
 if not w.open("user://out.mcap"):
 	push_error("open failed: %s" % w.get_last_error())
 	return
+
+# Optional: treat the current engine ticks as time zero in the file
+w.set_timestamp_offset_to_now()
 
 # Optional schema
 var schema_id := w.add_schema("MyType", "jsonschema", PackedByteArray())
@@ -122,6 +126,10 @@ w.flush() # finish current chunk and flush I/O
 if not w.close():
 	push_error("close failed: %s" % w.get_last_error())
 ```
+
+> Note: The timestamp offset can be changed freely until you write the first message or attachment.
+> After a time-bearing record is emitted the offset locks for the lifetime of the writer, and
+> writes that would underflow the offset will fail with an error.
 
 
 ### Read messages (GDScript)
@@ -181,6 +189,7 @@ Writer: `MCAPWriter` (RefCounted)
 - `add_channel(schema_id: int, topic: String, message_encoding: String, metadata: Dictionary) -> int`
 - `write(message: MCAPMessage) -> bool`
 - `write_to_known_channel(header: MCAPMessageHeader, data: PackedByteArray) -> bool`
+- `set_timestamp_offset_to_now() -> bool`, `set_timestamp_offset_usec(offset: int) -> bool`, `get_timestamp_offset_usec() -> int` (configure before writing time-bearing records)
 - `write_private_record(opcode: int, data: PackedByteArray, include_in_chunks: bool) -> bool`
 - `attach(attachment: MCAPAttachment) -> bool`
 - `write_metadata(meta: MCAPMetadata) -> bool`
