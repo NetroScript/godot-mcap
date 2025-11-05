@@ -200,6 +200,20 @@ impl MCAPWriter {
         }
     }
 
+    /// Returns whether the MCAPWriter is currently open.
+    /// Returns true if open, false otherwise.
+    #[func]
+    pub fn is_open(&self) -> bool {
+        self.writer.is_some()
+    }
+
+    /// Returns the path of the currently opened MCAP file.
+    /// If no file is open, returns an empty string.
+    #[func]
+    pub fn get_path(&self) -> GString {
+        self.path.clone()
+    }
+
     /// Adds a schema, returning its ID. If a schema with the same content has been added already,
     /// its ID is returned. Returns -1 on error.
     ///
@@ -223,6 +237,30 @@ impl MCAPWriter {
             },
             -1,
         )
+    }
+
+    /// Adds a schema using an MCAPSchema resource
+    /// The ID of the schema resource will be updated with the assigned ID.
+    ///
+    /// * `schema`: The MCAPSchema resource to add.
+    #[func]
+    pub fn add_schema_object(
+        &mut self,
+        mut schema: Gd<crate::types::MCAPSchema>,
+    ) {
+        let mut sc = schema.bind_mut();
+        let new_id = self.with_writer(
+            "add_schema_object",
+            |w| {
+                w.add_schema(
+                    sc.name.to_string().as_str(),
+                    sc.encoding.to_string().as_str(),
+                    sc.data.as_slice(),
+                )
+            },
+            0,
+        );
+        sc.id = new_id;
     }
 
     /// Adds a channel, returning its ID. If a channel with equivalent content was added previously,
@@ -260,6 +298,39 @@ impl MCAPWriter {
             },
             -1,
         )
+    }
+
+    /// Adds a channel using an MCAPChannel resource
+    /// The ID of the channel resource will be updated with the assigned ID.
+    /// It is required that the schema (if any) has already been added via `add_schema()`.
+    ///
+    /// * `channel`: The MCAPChannel resource to add.
+    #[func]
+    pub fn add_channel_object(
+        &mut self,
+        mut channel: Gd<crate::types::MCAPChannel>,
+    ) {
+        let mut ch = channel.bind_mut();
+        // Convert Godot Dictionary to BTreeMap<String, String>
+        let meta_map = dict_to_btreemap(&ch.metadata);
+        let new_id = self.with_writer(
+            "add_channel_object",
+            |w| {
+                w.add_channel(
+                    if let Some(schema) = &ch.schema {
+                        schema.bind().id as u16
+                    } else {
+                        0
+                    },
+                    ch.topic.to_string().as_str(),
+                    ch.message_encoding.to_string().as_str(),
+                    &meta_map,
+                )
+
+            },
+            0,
+        );
+       ch.id = new_id;
     }
 
     /// Write the given message (and its provided channel, if not already added).
