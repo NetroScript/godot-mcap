@@ -38,10 +38,11 @@ jobs:
             bin: libgodot_mcap.so
             final_name: libgodot_mcap_arm64.so
 
-          - runner: ubuntu-latest
-            target: armv7-linux-androideabi
-            bin: libgodot_mcap.so
-            final_name: libgodot_mcap_armv7.so
+#          32-bit build disabled for now due to https://github.com/godot-rust/gdext/issues/347
+#          - runner: ubuntu-latest
+#            target: armv7-linux-androideabi
+#            bin: libgodot_mcap.so
+#            final_name: libgodot_mcap_armv7.so
 
     steps:
       - uses: actions/checkout@v4
@@ -54,8 +55,8 @@ jobs:
         if: startsWith(matrix.target, 'aarch64-linux-android') || startsWith(matrix.target, 'armv7-linux-androideabi')
         run: |
           cargo install cargo-ndk
-          rustup target add aarch64-linux-android armv7-linux-androideabi
-          rustup target install aarch64-linux-android armv7-linux-androideabi
+          rustup target add aarch64-linux-android #armv7-linux-androideabi
+          rustup target install aarch64-linux-android #armv7-linux-androideabi
 
       - name: Setup Android NDK
         if: startsWith(matrix.target, 'aarch64-linux-android') || startsWith(matrix.target, 'armv7-linux-androideabi')
