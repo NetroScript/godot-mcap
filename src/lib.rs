@@ -1,6 +1,6 @@
-mod writer;
 mod reader;
 mod util;
+mod writer;
 #[macro_use]
 mod types;
 #[macro_use]
@@ -13,7 +13,6 @@ struct MCAP;
 
 #[gdextension]
 unsafe impl ExtensionLibrary for MCAP {
-
     fn on_level_init(level: InitLevel) {
         println!("[godot-mcap]   Init level {level:?}");
     }
@@ -22,4 +21,3 @@ unsafe impl ExtensionLibrary for MCAP {
         println!("[godot-mcap]   Deinit level {level:?}");
     }
 }
-

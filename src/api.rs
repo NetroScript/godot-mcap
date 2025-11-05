@@ -14,7 +14,7 @@ impl IResource for MCAPWriteOptions {
             #[cfg(all(not(feature = "zstd"), not(feature = "lz4")))]
             compression: MCAPCompression::None,
             profile: GString::new(),
-            library: GString::from(format!("godot-mcap-{}", env!("CARGO_PKG_VERSION"))),
+            library: GString::from(&format!("godot-mcap-{}", env!("CARGO_PKG_VERSION"))),
             // Default MCAP: Some(1024*768), with chunking enabled
             chunk_size: (1024 * 768) as i64,
             use_chunks: true,

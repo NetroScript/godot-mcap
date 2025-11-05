@@ -1,9 +1,9 @@
 mod buf;
 mod filter;
-mod mcap_reader;
 mod iterator;
+mod mcap_reader;
 mod replay;
 
-pub use mcap_reader::MCAPReader;
 pub use iterator::MCAPMessageIterator;
+pub use mcap_reader::MCAPReader;
 pub use replay::{MCAPReplay, ProcessingMode};
