@@ -1,6 +1,9 @@
+use godot::global::PropertyUsageFlags;
 use godot::prelude::*;
 use half::f16;
+use std::collections::hash_map::DefaultHasher;
 use std::fmt::Display;
+use std::hash::{Hash, Hasher};
 
 #[derive(GodotClass)]
 /// Streaming helper around `PackedByteArray` for binary serialization from Godot.
@@ -14,6 +17,27 @@ pub struct BinaryStream {
     buffer: Vec<u8>,
     cursor: usize,
     last_error: String,
+}
+
+// A helper struct to hold processed property information.
+// We derive Ord to enable sorting by name.
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct StorableProperty {
+    name: GString,
+    type_: VariantType,
+}
+
+// Manual implementation of Ord to sort by the string representation of the name.
+impl Ord for StorableProperty {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.name.to_string().cmp(&other.name.to_string())
+    }
+}
+
+impl PartialOrd for StorableProperty {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl BinaryStream {
@@ -502,6 +526,161 @@ impl BinaryStream {
             data.push(value);
         }
         Some(data)
+    }
+
+    /// Checks if a variant type is supported for serialization by `write_variant`.
+    fn is_type_supported(&self, type_: VariantType) -> bool {
+        matches!(
+            type_,
+            VariantType::BOOL
+                | VariantType::INT
+                | VariantType::FLOAT
+                | VariantType::STRING
+                | VariantType::VECTOR2
+                | VariantType::VECTOR2I
+                | VariantType::RECT2
+                | VariantType::RECT2I
+                | VariantType::VECTOR3
+                | VariantType::VECTOR3I
+                | VariantType::TRANSFORM2D
+                | VariantType::VECTOR4
+                | VariantType::VECTOR4I
+                | VariantType::PLANE
+                | VariantType::QUATERNION
+                | VariantType::AABB
+                | VariantType::BASIS
+                | VariantType::TRANSFORM3D
+                | VariantType::PROJECTION
+                | VariantType::COLOR
+                | VariantType::STRING_NAME
+                | VariantType::NODE_PATH
+                | VariantType::RID
+                | VariantType::PACKED_BYTE_ARRAY
+                | VariantType::PACKED_INT32_ARRAY
+                | VariantType::PACKED_INT64_ARRAY
+                | VariantType::PACKED_FLOAT32_ARRAY
+                | VariantType::PACKED_FLOAT64_ARRAY
+                | VariantType::PACKED_STRING_ARRAY
+                | VariantType::PACKED_VECTOR2_ARRAY
+                | VariantType::PACKED_VECTOR3_ARRAY
+                | VariantType::PACKED_COLOR_ARRAY
+                | VariantType::PACKED_VECTOR4_ARRAY
+        )
+    }
+
+    /// Fetches, filters, and sorts the properties of an object that are marked for storage.
+    fn get_storable_properties(
+        &mut self,
+        object: &Gd<Object>,
+        caller: &str,
+    ) -> Option<Vec<StorableProperty>> {
+        let prop_list = object.get_property_list();
+        let mut storable_props = Vec::new();
+
+        for prop_dict in prop_list.iter_shared() {
+            let Some(name_var) = prop_dict.get("name") else {
+                self.set_error(format!("{caller}: property dictionary missing 'name'"));
+                return None;
+            };
+            let Some(name) = name_var.try_to_relaxed::<GString>().ok() else {
+                self.set_error(format!("{caller}: property 'name' was not a StringName"));
+                return None;
+            };
+
+            let Some(type_var) = prop_dict.get("type") else {
+                self.set_error(format!("{caller}: property '{name}' missing 'type'"));
+                return None;
+            };
+            let Some(type_int) = type_var.try_to_relaxed::<i32>().ok() else {
+                self.set_error(format!("{caller}: property '{name}' type was not an int"));
+                return None;
+            };
+            let type_ = VariantType { ord: type_int };
+
+            let Some(usage_var) = prop_dict.get("usage") else {
+                self.set_error(format!("{caller}: property '{name}' missing 'usage'"));
+                return None;
+            };
+            let Some(usage_int) = usage_var.try_to::<u64>().ok() else {
+                self.set_error(format!("{caller}: property '{name}' usage was not an int"));
+                return None;
+            };
+            let Some(usage) = PropertyUsageFlags::try_from_ord(usage_int) else {
+                self.set_error(format!(
+                    "{caller}: property '{name}' usage had invalid flags {usage_int}"
+                ));
+                return None;
+            };
+
+            if usage.is_set(PropertyUsageFlags::STORAGE) && self.is_type_supported(type_) {
+                storable_props.push(StorableProperty { name, type_ });
+            }
+        }
+
+        storable_props.sort(); // Sort alphabetically by property name
+        Some(storable_props)
+    }
+
+    /// Computes a stable hash for a sorted list of storable properties.
+    fn compute_property_hash(properties: &[StorableProperty]) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        for prop in properties {
+            prop.name.to_string().hash(&mut hasher);
+            (prop.type_).hash(&mut hasher);
+        }
+        hasher.finish()
+    }
+
+    /// Reads a variant from the stream based on an expected type.
+    fn read_variant_by_type(&mut self, type_: VariantType) -> Option<Variant> {
+        let value = match type_ {
+            VariantType::BOOL => self.read_bool().to_variant(),
+            VariantType::INT => self.read_i64().to_variant(),
+            VariantType::FLOAT => self.read_f64().to_variant(),
+            VariantType::STRING => self.read_string().to_variant(),
+            VariantType::VECTOR2 => self.read_vector2().to_variant(),
+            VariantType::VECTOR2I => self.read_vector2i().to_variant(),
+            VariantType::RECT2 => self.read_rect2().to_variant(),
+            VariantType::RECT2I => self.read_rect2i().to_variant(),
+            VariantType::VECTOR3 => self.read_vector3().to_variant(),
+            VariantType::VECTOR3I => self.read_vector3i().to_variant(),
+            VariantType::TRANSFORM2D => self.read_transform2d().to_variant(),
+            VariantType::VECTOR4 => self.read_vector4().to_variant(),
+            VariantType::VECTOR4I => self.read_vector4i().to_variant(),
+            VariantType::PLANE => self.read_plane().to_variant(),
+            VariantType::QUATERNION => self.read_quaternion().to_variant(),
+            VariantType::AABB => self.read_aabb().to_variant(),
+            VariantType::BASIS => self.read_basis().to_variant(),
+            VariantType::TRANSFORM3D => self.read_transform3d().to_variant(),
+            VariantType::PROJECTION => self.read_projection().to_variant(),
+            VariantType::COLOR => self.read_color().to_variant(),
+            VariantType::STRING_NAME => self.read_string_name().to_variant(),
+            VariantType::NODE_PATH => self.read_node_path().to_variant(),
+            VariantType::RID => self.read_rid().to_variant(),
+            VariantType::PACKED_BYTE_ARRAY => self.read_packed_byte_array().to_variant(),
+            VariantType::PACKED_INT32_ARRAY => self.read_packed_int32_array().to_variant(),
+            VariantType::PACKED_INT64_ARRAY => self.read_packed_int64_array().to_variant(),
+            VariantType::PACKED_FLOAT32_ARRAY => self.read_packed_float32_array().to_variant(),
+            VariantType::PACKED_FLOAT64_ARRAY => self.read_packed_float64_array().to_variant(),
+            VariantType::PACKED_STRING_ARRAY => self.read_packed_string_array().to_variant(),
+            VariantType::PACKED_VECTOR2_ARRAY => self.read_packed_vector2_array().to_variant(),
+            VariantType::PACKED_VECTOR3_ARRAY => self.read_packed_vector3_array().to_variant(),
+            VariantType::PACKED_COLOR_ARRAY => self.read_packed_color_array().to_variant(),
+            VariantType::PACKED_VECTOR4_ARRAY => self.read_packed_vector4_array().to_variant(),
+            _ => {
+                self.set_error(format!(
+                    "read_variant_by_type: cannot read unsupported type '{:?}'",
+                    type_
+                ));
+                return None;
+            }
+        };
+        // Check if any read operations failed and set an error.
+        if !self.last_error.is_empty() {
+            None
+        } else {
+            Some(value)
+        }
     }
 }
 
@@ -1397,5 +1576,129 @@ impl BinaryStream {
         self.read_packed_array_inner("read_packed_vector4_array", Self::read_vector4_inner)
             .map(PackedVector4Array::from)
             .unwrap_or_else(PackedVector4Array::new)
+    }
+
+    /// Writes a Godot `Variant` to the stream.
+    ///
+    /// This function checks the variant's type and calls the corresponding
+    /// `write_*` method. If the type is not supported for serialization,
+    /// it sets an error and returns `false`.
+    #[func]
+    pub fn write_variant(&mut self, value: Variant) -> bool {
+        match value.get_type() {
+            VariantType::BOOL => self.write_bool(value.to()),
+            VariantType::INT => self.write_i64(value.to()),
+            VariantType::FLOAT => self.write_f64(value.to()),
+            VariantType::STRING => self.write_string(value.to()),
+            VariantType::VECTOR2 => self.write_vector2(value.to()),
+            VariantType::VECTOR2I => self.write_vector2i(value.to()),
+            VariantType::RECT2 => self.write_rect2(value.to()),
+            VariantType::RECT2I => self.write_rect2i(value.to()),
+            VariantType::VECTOR3 => self.write_vector3(value.to()),
+            VariantType::VECTOR3I => self.write_vector3i(value.to()),
+            VariantType::TRANSFORM2D => self.write_transform2d(value.to()),
+            VariantType::VECTOR4 => self.write_vector4(value.to()),
+            VariantType::VECTOR4I => self.write_vector4i(value.to()),
+            VariantType::PLANE => self.write_plane(value.to()),
+            VariantType::QUATERNION => self.write_quaternion(value.to()),
+            VariantType::AABB => self.write_aabb(value.to()),
+            VariantType::BASIS => self.write_basis(value.to()),
+            VariantType::TRANSFORM3D => self.write_transform3d(value.to()),
+            VariantType::PROJECTION => self.write_projection(value.to()),
+            VariantType::COLOR => self.write_color(value.to()),
+            VariantType::STRING_NAME => self.write_string_name(value.to()),
+            VariantType::NODE_PATH => self.write_node_path(value.to()),
+            VariantType::RID => self.write_rid(value.to()),
+            VariantType::PACKED_BYTE_ARRAY => self.write_packed_byte_array(value.to()),
+            VariantType::PACKED_INT32_ARRAY => self.write_packed_int32_array(value.to()),
+            VariantType::PACKED_INT64_ARRAY => self.write_packed_int64_array(value.to()),
+            VariantType::PACKED_FLOAT32_ARRAY => self.write_packed_float32_array(value.to()),
+            VariantType::PACKED_FLOAT64_ARRAY => self.write_packed_float64_array(value.to()),
+            VariantType::PACKED_STRING_ARRAY => self.write_packed_string_array(value.to()),
+            VariantType::PACKED_VECTOR2_ARRAY => self.write_packed_vector2_array(value.to()),
+            VariantType::PACKED_VECTOR3_ARRAY => self.write_packed_vector3_array(value.to()),
+            VariantType::PACKED_COLOR_ARRAY => self.write_packed_color_array(value.to()),
+            VariantType::PACKED_VECTOR4_ARRAY => self.write_packed_vector4_array(value.to()),
+            _ => {
+                self.set_error(format!(
+                    "write_variant: unsupported type '{:?}'",
+                    value.get_type()
+                ));
+                false
+            }
+        }
+    }
+
+    /// Serializes a Godot `Object`'s properties to the stream.
+    ///
+    /// It inspects the object's properties, filtering for those with the `STORAGE`
+    /// usage flag and a serializable type. It then writes a hash of the property
+    /// names and types, followed by the value of each property. This hash allows
+    /// `read_object` to verify that the data schema matches.
+    #[func]
+    pub fn write_object(&mut self, object: Gd<Object>) -> bool {
+        let Some(properties) = self.get_storable_properties(&object, "write_object") else {
+            return false;
+        };
+
+        let hash = Self::compute_property_hash(&properties);
+        if !self.write_fixed("write_object.hash", hash.to_le_bytes()) {
+            return false;
+        }
+
+        for prop in properties.iter() {
+            let value = object.get(prop.name.arg());
+            if !self.write_variant(value) {
+                // write_variant sets its own detailed error.
+                // We'll add context that it happened during object serialization.
+                let base_error = self.last_error.clone();
+                self.set_error(format!(
+                    "write_object: failed to write property '{}': {}",
+                    prop.name, base_error
+                ));
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Deserializes data from the stream into an existing Godot `Object`.
+    ///
+    /// It first reads a schema hash and compares it to a hash generated from the
+    /// target object's storable properties. If they match, it proceeds to read
+    /// each property's value from the stream and sets it on the object. If the
+    /// hashes mismatch, an error is set and the object is not modified.
+    #[func]
+    pub fn read_object(&mut self, mut object: Gd<Object>) -> bool {
+        let Some(properties) = self.get_storable_properties(&object, "read_object") else {
+            return false;
+        };
+
+        let expected_hash = Self::compute_property_hash(&properties);
+
+        let Some(stored_hash) = self.read_u64_inner("read_object.hash") else {
+            // read_u64_inner would have set a more specific error.
+            return false;
+        };
+
+        if expected_hash != stored_hash {
+            self.set_error(format!(
+                "read_object: schema hash mismatch. Expected {expected_hash}, found {stored_hash}. The object's structure does not match the serialized data."
+            ));
+            return false;
+        }
+
+        for prop in properties.iter() {
+            let Some(value) = self.read_variant_by_type(prop.type_) else {
+                let base_error = self.last_error.clone();
+                self.set_error(format!(
+                    "read_object: failed to read property '{}': {}",
+                    prop.name, base_error
+                ));
+                return false;
+            };
+            object.set(prop.name.arg(), &value);
+        }
+        true
     }
 }
