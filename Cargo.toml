@@ -9,6 +9,7 @@ godot = { version = "0.4.2", features = ["api-4-3", "register-docs"] }
 mcap = "0.23.4"
 enumset = "1.1.10"
 memmap2 = "0.9.8"
+half = "2.4.1"
 
 
 [lib]

@@ -30,6 +30,9 @@ This extension is built with godot-rust and targets Godot >=4.3 APIs.
 	- `MCAPReplay` Node to emit messages over time (idle or physics), with speed/looping
 - Godot-friendly Resources for common MCAP types (Channel, Schema, Message, Attachment, Metadata)
 - Error handling via `get_last_error()` on reader/writer
+- Binary stream helper
+	- `BinaryStream` to pack/unpack primitives and Godot builtins (Vector2/3, Transform2D/3D, Basis)
+	- Load existing `PackedByteArray` instances, seek, and export the stream back to Godot
 
 
 ## Installation
@@ -157,6 +160,24 @@ if reader.has_summary():
 if reader.get_last_error() != "":
 	push_error(reader.get_last_error())
 ```
+
+
+### Serialize binary data (GDScript)
+
+```gdscript
+var stream := BinaryStream.new()
+stream.write_u32(123)
+stream.write_vector3(Vector3(1, 2, 3))
+var bytes := stream.to_packed_byte_array()
+
+var reader := BinaryStream.new()
+reader.load_bytes(bytes)
+reader.seek(0)
+var id := reader.read_u32()
+var pos := reader.read_vector3()
+```
+
+Use `seek`, `skip`, and the typed read/write helpers (integers, floats, half, Vector2/3, Basis, Transform2D/3D, etc.) to build binary payloads that round-trip cleanly between Rust and GDScript.
 
 
 ### Replay in real-time (Node)

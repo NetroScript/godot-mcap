@@ -1,13 +1,13 @@
-use crate::reader::buf::{BufBackend, SharedBuf};
-use crate::reader::filter::{stream_chunk_apply, MsgFilter};
 use crate::reader::MCAPMessageIterator;
+use crate::reader::buf::{BufBackend, SharedBuf};
+use crate::reader::filter::{MsgFilter, stream_chunk_apply};
 use crate::types::*;
-use godot::classes::file_access::ModeFlags;
 use godot::classes::ProjectSettings;
+use godot::classes::file_access::ModeFlags;
 use godot::prelude::*;
 use godot::tools::GFile;
 use mcap::read::{
-    footer as mcap_footer, MessageStream, Options, RawMessage, RawMessageStream, Summary,
+    MessageStream, Options, RawMessage, RawMessageStream, Summary, footer as mcap_footer,
 };
 use std::borrow::Cow;
 use std::collections::HashSet;

@@ -1,5 +1,5 @@
 use crate::reader::buf::SharedBuf;
-use crate::reader::filter::{stream_chunk_apply, MsgFilter};
+use crate::reader::filter::{MsgFilter, stream_chunk_apply};
 use crate::reader::mcap_reader::MCAPReader;
 use crate::types::*;
 use godot::prelude::*;

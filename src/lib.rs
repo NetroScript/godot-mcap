@@ -1,3 +1,4 @@
+mod binary_stream;
 mod reader;
 mod util;
 mod writer;

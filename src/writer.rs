@@ -1,11 +1,11 @@
 use crate::{types::*, util::*};
 use enumset::EnumSet;
-use godot::classes::{file_access::ModeFlags, RefCounted, Time};
+use godot::classes::{RefCounted, Time, file_access::ModeFlags};
 use godot::prelude::*;
 use godot::tools::GFile;
+use mcap::Writer;
 use mcap::records::Metadata;
 use mcap::write::PrivateRecordOptions;
-use mcap::Writer;
 
 #[derive(GodotClass)]
 /// MCAP file writer for Godot.
@@ -305,7 +305,7 @@ impl MCAPWriter {
                     encoding.to_string().as_str(),
                     data.as_slice(),
                 )
-                    .map(|id| id as i64)
+                .map(|id| id as i64)
             },
             -1,
         )
@@ -363,7 +363,7 @@ impl MCAPWriter {
                     message_encoding.to_string().as_str(),
                     &meta_map,
                 )
-                    .map(|id| id as i64)
+                .map(|id| id as i64)
             },
             -1,
         )
