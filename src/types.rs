@@ -159,7 +159,11 @@ pub struct MCAPSummary {
     pub metadata_indexes: Array<Gd<MCAPMetadataIndex>>,
 }
 
-/// Describes a schema used by one or more [MCAPChannel]s in an MCAP file
+/// Describes a schema used by one or more [MCAPChannel]s in an MCAP file.
+///
+/// Identity note: Instances returned by the reader are newly constructed on
+/// each call/iteration. Do not compare by object identity/reference; prefer
+/// comparing by stable fields such as `id` (and optionally `name`/`encoding`).
 #[derive(GodotClass)]
 #[class(no_init, base=Resource)]
 pub struct MCAPSchema {
@@ -177,7 +181,11 @@ pub struct MCAPSchema {
     pub data: PackedByteArray,
 }
 
-/// Describes a channel which [Message]s are published to in an MCAP file
+/// Describes a channel which [Message]s are published to in an MCAP file.
+///
+/// Identity note: Reader methods and iterators construct new `MCAPChannel`
+/// instances as needed. Compare channels by `id` (preferred) or by `topic`,
+/// not by object identity.
 #[derive(GodotClass)]
 #[class(no_init, base=Resource)]
 pub struct MCAPChannel {
@@ -198,7 +206,12 @@ pub struct MCAPChannel {
     pub metadata: Dictionary,
 }
 
-/// An event in an MCAP file, published to a [MCAPChannel]
+/// An event in an MCAP file, published to a [MCAPChannel].
+///
+/// Identity note: The embedded `channel` Resource is newly constructed and may
+/// be a distinct instance from channels returned by other reads/iterations.
+/// Compare messages by fields like `channel.id` together with `sequence` or
+/// `log_time`, rather than by object identity.
 #[derive(GodotClass)]
 #[class(no_init, base=Resource)]
 pub struct MCAPMessage {
@@ -219,7 +232,11 @@ pub struct MCAPMessage {
     pub data: PackedByteArray,
 }
 
-/// An attachment and its metadata in an MCAP file
+/// An attachment and its metadata in an MCAP file.
+///
+/// Identity note: Attachments returned by the reader are newly constructed.
+/// For equality, prefer comparing by content properties such as `(name, log_time)`
+/// or your own external keys, rather than by object identity.
 #[derive(GodotClass)]
 #[class(no_init, base=Resource)]
 pub struct MCAPAttachment {
@@ -258,7 +275,11 @@ pub struct MCAPMessageHeader {
     pub publish_time: i64,
 }
 
-/// MCAP Metadata record
+/// MCAP Metadata record.
+///
+/// Identity note: Metadata objects are newly constructed on each read. For
+/// equality, compare by `name` (and relevant `metadata` keys) rather than by
+/// object identity.
 #[derive(GodotClass)]
 #[class(no_init, base=Resource)]
 pub struct MCAPMetadata {

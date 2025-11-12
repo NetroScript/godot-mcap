@@ -22,6 +22,8 @@ use std::sync::Arc;
 /// - Loads an MCAP file into memory for fast random access and optional indexed queries.
 /// - Provides direct streaming of messages (`messages`, `raw_messages`) and an indexed iterator (`stream_messages_iterator`).
 /// - Exposes attachment and metadata access via summary indexes when present.
+/// - Identity note: every read constructs new Godot Resources (`MCAPMessage`, `MCAPChannel`, `MCAPSchema`, etc.).
+///   Do not rely on instance equality across calls; compare by stable fields instead (e.g. `channel.id`, `schema.id`).
 ///
 /// Memory & I/O
 /// - When opening from a path, the reader first tries to memory-map (mmap) the file for zero-copy random access.

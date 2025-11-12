@@ -202,7 +202,7 @@ func _on_replay_message(msg: MCAPMessage) -> void:
 ```
 
 
-## API highlights
+## API Overview
 
 Writer: `MCAPWriter` (RefCounted)
 - `open(path: String) -> bool`
@@ -241,6 +241,22 @@ Types (Resources)
 - `MCAPWriteOptions`, `MCAPCompression`
 - `MCAPSchema`, `MCAPChannel`, `MCAPMessage`, `MCAPMessageHeader`, `MCAPAttachment`, `MCAPMetadata`
 - Summary/index wrappers: `MCAPSummary`, `MCAPFooter`, `MCAPChunkIndex`, `MCAPMessageIndexEntry`, `MCAPAttachmentIndex`, `MCAPMetadataIndex`
+
+
+### Object identity and equality
+
+When reading, this extension constructs new Godot Resource instances every time:
+
+- Each call to `MCAPReader.messages()`, `raw_messages()`, `attachments()`, `metadata_entries()`, or when iterating via `MCAPMessageIterator`, creates new `MCAPMessage`, `MCAPChannel`, `MCAPSchema`, `MCAPAttachment`, and `MCAPMetadata` objects.
+- The same logical channel or schema may therefore be represented by different Resource instances across calls. Do not compare objects by identity/reference.
+
+Compare by stable properties instead:
+
+- Channels: compare `channel.id` (preferred) or `channel.topic`.
+- Schemas: compare `schema.id` (preferred), optionally with `schema.name`/`schema.encoding`.
+- Messages: compare `message.channel.id` together with `message.sequence` or `message.log_time`.
+- Attachments: compare a tuple such as `(name, log_time)` or use offsets if you maintain them externally.
+- Metadata: compare `name` (and/or specific keys in `metadata`).
 
 
 ## Compression features

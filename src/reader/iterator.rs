@@ -14,6 +14,8 @@ use std::collections::HashSet;
 /// - Iterates messages in log-time order across chunks and channels.
 /// - Supports optional per-channel filtering and multiple seek helpers.
 /// - Requires a Summary section in the file.
+/// - Identity note: messages and their nested channel/schema are newly constructed per iteration step.
+///   Compare by fields (e.g. `msg.channel.id`, `msg.sequence`, `msg.log_time`) rather than by object identity.
 ///
 /// Usage (GDScript)
 /// ```gdscript

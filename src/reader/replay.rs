@@ -216,7 +216,7 @@ impl MCAPReplay {
             Some(r) => r.clone(),
             None => return false,
         };
-        // Build a fresh iterator from reader
+        // Build a new iterator from reader
         let mut it = reader.bind().stream_messages_iterator();
         // Fast-path single-channel filter
         if let Some(set) = &self.filter_channels {
