@@ -37,26 +37,48 @@ This extension is built with godot-rust and targets Godot >=4.3 APIs.
 
 ## Installation
 
-Automatic releases tbd. 
+Visit the [Releases Page](https://github.com/NetroScript/godot-mcap/releases) to download the `godot_mcap.zip` archive of the latest release.
+
+Unzip the contents of that archive into your Godot project folder. The resulting structure should look like this:
+
+```
+your-godot-project/
+├── addons/godot-mcap/
+│   ├── godot_mcap.dll
+│   ├── godot_mcap.dylib
+│   ├── godot_mcap.gdextension
+│   ├── godot_mcap.so
+│   └── ...
+├── project.godot
+└── ...
+```
+
+Reload or restart your Godot project. You should now see the MCAP classes available in the Create dialog (Script/Node) and documentation accessible in the editor.
+
+
+The released archive contains the pre-built native libraries for Windows (`.dll`), macOS (`.dylib`), Linux (`.so`) and 64-bit ARM for Android (`.so`). 
+
+To use the extension on other platforms (e.g. iOS, WebAssembly) or architectures, you will need to build the native library from source (see below).
 
 ## Building from source
 
-Prerequisites
+### Prerequisites
 - Godot >=4.3 (matching the `api-4-3` bindings used here)
 - Rust toolchain (stable)
 
-Build the native library
+### Build the native library
 
 ```fish
 cargo build --release
 ```
 
-Artifacts (Linux)
+### Resulting Artifacts (Example: Linux x86_64)
+
 - Debug: `target/debug/libgodot_mcap.so`
 - Release: `target/release/libgodot_mcap.so`
 
 
-### Godot project setup (GDExtension)
+#### Godot project setup (GDExtension)
 
 1) Copy the built library into your project, e.g.
 - `res://bin/linux_x86_64/libgodot_mcap.so`
@@ -204,6 +226,9 @@ func _on_replay_message(msg: MCAPMessage) -> void:
 
 ## API Overview
 
+The following is an overview of the main classes and methods provided by this extension.
+For detailed documentation, refer to the in-editor docs or the source code comments.
+
 Writer: `MCAPWriter` (RefCounted)
 - `open(path: String) -> bool`
 - `add_schema(name: String, encoding: String, data: PackedByteArray) -> int`
@@ -306,10 +331,7 @@ At runtime, choose the compression via `MCAPWriteOptions.compression`.
 
 ## Maybe planned
 
-- Publish binary releases for common platforms
 - Add a `demo/` Godot project with example scenes and scripts
-- CI for building and packaging per-platform artifacts
-
 
 ## Acknowledgements
 
